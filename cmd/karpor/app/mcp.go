@@ -76,32 +76,20 @@ func mcpRun(ctx context.Context, options *mcpOptions) error {
 	ctrl.SetLogger(klog.NewKlogr())
 	log := ctrl.Log.WithName("mcp")
 
-	log.Info("Starting MCP SSE server",
-		"port", options.SSEPort,
-		"metrics-bind-address", options.MetricsAddr,
-		"health-probe-bind-address", options.ProbeAddr,
-	)
-
-	// Initialize controller-runtime manager for health/readyz probes and metrics
-	// This requires a Kubernetes config, even if the MCP server doesn't directly use it yet.
-	// TODO: Re-evaluate if a full manager is needed just for probes, or if a simpler http server is sufficient.
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme:                 scheme.Scheme,
 		MetricsBindAddress:     options.MetricsAddr,
 		HealthProbeBindAddress: options.ProbeAddr,
-		// We don't need leader election or controllers for just probes/metrics
-		LeaderElection: false,
 	})
 	if err != nil {
-		log.Error(err, "unable to create manager for probes")
-		return fmt.Errorf("unable to create manager for probes: %w", err)
+		log.Error(err, "unable to create manager for mcp probes")
+		return err
 	}
 
-	// Add health and readiness checks
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		log.Error(err, "unable to set up health check")
 		return fmt.Errorf("unable to set up health check: %w", err)
 	}
-	// TODO: Make readyz check dependent on storage backend health
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		log.Error(err, "unable to set up ready check")
 		return fmt.Errorf("unable to set up ready check: %w", err)
