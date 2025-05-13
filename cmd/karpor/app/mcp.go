@@ -19,9 +19,10 @@ import (
 	"fmt"
 	"os"
 
-	_ "github.com/KusionStack/karpor/pkg/infra/search/storage/elasticsearch"
-	_ "github.com/KusionStack/karpor/pkg/mcp"
-	_ "github.com/elastic/go-elasticsearch/v8"
+	"github.com/KusionStack/karpor/pkg/infra/search/storage"
+	"github.com/KusionStack/karpor/pkg/infra/search/storage/elasticsearch"
+	"github.com/KusionStack/karpor/pkg/mcp"
+	esclient "github.com/elastic/go-elasticsearch/v8"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"k8s.io/klog/v2"
@@ -100,6 +101,7 @@ func mcpRun(ctx context.Context, options *mcpOptions) error {
 		log.Error(err, "unable to set up health check")
 		return fmt.Errorf("unable to set up health check: %w", err)
 	}
+	// TODO: Make readyz check dependent on storage backend health
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		log.Error(err, "unable to set up ready check")
 		return fmt.Errorf("unable to set up ready check: %w", err)
@@ -118,41 +120,42 @@ func mcpRun(ctx context.Context, options *mcpOptions) error {
 	}()
 
 
-	//TODO update to use the generic storage interface for initialization
-	//nolint:contextcheck
-	// es, err := elasticsearch.NewStorage(esclient.Config{
-	// 	Addresses: options.ElasticSearchAddresses,
-	// })
-	// if err != nil {
-	// 	log.Error(err, "unable to init elasticsearch client")
-	// 	return err
-	// }
-	// log.Info("Acquired elasticsearch storage backend", "esStorage", es)
+	// Initialize storage backend (Elasticsearch for now)
+	// TODO update to use the generic storage interface for initialization
+	//nolint:contextcheck // Context is passed to storage methods, not NewStorage
+	es, err := elasticsearch.NewStorage(esclient.Config{
+		Addresses: options.ElasticSearchAddresses,
+	})
+	if err != nil {
+		log.Error(err, "unable to init elasticsearch client")
+		return fmt.Errorf("unable to init elasticsearch client: %w", err)
+	}
+	log.Info("Acquired elasticsearch storage backend", "esStorage", es)
 
+	// TODO pickup syncer operations patterns for running the mcp server from app/syncer.go
 
-	//TODO pickup syncer operations patterns for running the mcp server from app/syncer.go
-
-	log.Info("TODO: yet to implement mcp functionality")
-	log.Info("see /cmd/karpor/app/mcp.go for further directives")
-
-	// TODO: Initialize and start the actual MCP SSE server here.
+	// Initialize and start the actual MCP SSE server here.
+	// Pass the initialized storage backend(s) to the MCP server.
 	// The MCP server's Serve() method is blocking, so this call would
 	// typically be the last thing in this function, or managed alongside
 	// the manager's Start using a run.Group or similar.
-	// Example (placeholder):
-	// mcpServer := mcp.NewMCPStorageServer(nil, "http://localhost"+options.SSEPort, options.SSEPort) // Pass actual storage
-	// if err := mcpServer.Serve(); err != nil {
-	// 	log.Error(err, "problem running MCP SSE server")
-	// 	return err
-	// }
+	// For now, we pass the ES storage as a single-element slice.
+	mcpServer := mcp.NewMCPStorageServer([]storage.Storage{es}, "http://localhost"+options.SSEPort, options.SSEPort) // Pass actual storage
 
+	log.Info("Starting MCP SSE server...")
+	// The Serve method is blocking.
+	if err := mcpServer.Serve(); err != nil {
+		log.Error(err, "problem running MCP SSE server")
+		return fmt.Errorf("problem running MCP SSE server: %w", err)
+	}
 
-	// This return will be reached immediately after starting the manager goroutine
-	// and before the actual MCP server is started (which is still TODO).
-	// The function should block until the main server (TODO) or context is done.
-	// For now, we'll just return nil, but this needs correction when the MCP server is added.
-	// A common pattern is to wait on the context's Done channel.
-	<-ctx.Done()
+	// This return will only be reached if mcpServer.Serve() returns without error,
+	// or if the context is cancelled and Serve() respects it.
+	// A common pattern is to wait on the context's Done channel *after* starting
+	// all blocking components, or use a run.Group.
+	// For now, the Serve() call is blocking, so the line below is unreachable
+	// unless Serve() is modified to return on context cancellation.
+	// <-ctx.Done() // This line is now effectively unreachable
 	log.Info("MCP command shutting down")
-	return nil
+	return nil // Or return the error from mcpServer.Serve()
 }
