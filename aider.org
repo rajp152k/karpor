@@ -241,8 +241,10 @@
  - need to readup on the storage.Storage interface
 
 ** replicating patterns from syncer to mcp
-In summary, the key patterns from syncer to replicate in mcp are:
- - [ ] Initializing the storage backend using command-line options.
+ - [X] Initializing the storage backend using command-line options.
+
+ - [ ] health and readiness probes for mcp via implementing the required interface for the controller runtime
+
  - [ ] Passing the initialized storage instance to the MCPStorageServer.
  - [ ] Ensuring the actual MCP server start call is blocking and serves as the main        execution loop.
  - [ ] Ensuring the MCP server respects the context for graceful shutdown.
